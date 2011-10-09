@@ -1,11 +1,10 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=3284
 
-Use "" (2 double quotes) instead of ci' or ci".
+Use "" (2 double quotes) instead of ci' or ci" or ci`.
 
-You don't even have to be on the line you're interested in. The first screen line containing a pair of quotes will be used (a top screen line will be used if there are no quotes below the cursor).
+You don't even have to be on the line you're interested in.
+The first screen line containing a pair of quotes will be used (a top screen line will be used if there are no quotes below the cursor).
 
 In a line containing pairs of both type of quotes, the first quote left to the cursor will be used to decide.
-
-You can repeat your action with '.', just install Tim Pope's repeat plugin.
 
 Personalization: nmap "" <plug>QuotesCIQuotes

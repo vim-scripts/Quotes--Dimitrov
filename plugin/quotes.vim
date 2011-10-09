@@ -1,25 +1,26 @@
-" Use "" instead of ci" or ci'
+" Use "" instead of ci' or ci" or ci`
 "
 " Author: Dimitar Dimitrov (mitkofr@yahoo.fr), kurkale6ka
 "
 " Latest version at:
-" http://github.com/kurkale6ka/vimfiles/blob/master/plugin/quotes.vim
+" https://github.com/kurkale6ka/vim-quotes
 "
-" todo: highlight the matched quotes before changing them
-" todo: add support for backticks
+" todo: '               '      X     "              "
+"       currently results in:
+"       '|'            "              "
+"       which is in accordance with the algorithm defined below.
+"       What one would prefer though is:
+"       '               '            "|"
 
 if exists('g:loaded_quotes') || &compatible || v:version < 700
 
-    if &compatible && &verbose
+   if &compatible && &verbose
+      echo "Quotes is not designed to work in compatible mode."
+   elseif v:version < 700
+      echo "Quotes needs Vim 7.0 or above to work correctly."
+   endif
 
-        echo "Quotes is not designed to work in compatible mode."
-
-    elseif v:version < 700
-
-        echo "Quotes needs Vim 7.0 or above to work correctly."
-    endif
-
-    finish
+   finish
 endif
 
 let g:loaded_quotes = 1
@@ -27,174 +28,193 @@ let g:loaded_quotes = 1
 let s:savecpo = &cpoptions
 set cpoptions&vim
 
-function! s:ChangeTextQuotes (changedtick, quote, text)
+function! CI_quotes()
 
-    " Beyond EOL
-    if col('.') >= col('$')
+   let my_changedtick = b:changedtick
+   let save_cursor    = getpos(".")
+   let stop_line      = line('.')
 
-        call search(a:quote, 'cbW', line('.'))
-    endif
+   " 1. In this first section, all calculations are done without quitting the
+   "    current line.
+   if !search ('["' . "'`]", 'cn', line('.'))
+      let nb_quotes    = 0
+      let nb_qquotes   = 0
+      let nb_backticks = 0
+   else
+      let nb_quotes    = strlen(substitute(getline('.'), "[^']", '', 'g'))
+      let nb_qquotes   = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+      let nb_backticks = strlen(substitute(getline('.'), '[^`]', '', 'g'))
+   endif
 
-    execute 'normal ci' . a:quote
+   if nb_quotes >= 2 && nb_qquotes < 2 && nb_backticks < 2 &&
+      \search ("'", 'cn', line('.'))
 
-    if a:changedtick != b:changedtick
+      normal! ci'
+   elseif nb_quotes >= 2 && nb_qquotes < 2 && nb_backticks < 2
+      let nb_quotes = 0
+   endif
 
-        if empty(a:text)
+   if nb_quotes < 2 && nb_qquotes >= 2 && nb_backticks < 2 &&
+      \search ('"', 'cn', line('.'))
 
-            let my_text = input('Text: ')
+      normal! ci"
+   elseif nb_quotes < 2 && nb_qquotes >= 2 && nb_backticks < 2
+      let nb_qquotes = 0
+   endif
 
-        elseif 'no_text' == a:text
+   if nb_quotes < 2 && nb_qquotes < 2 && nb_backticks >= 2 &&
+      \search ('`', 'cn', line('.'))
 
-            let my_text = ''
-        else
-            let my_text = a:text
-        endif
+      normal! ci`
+   elseif nb_quotes < 2 && nb_qquotes < 2 && nb_backticks >= 2
+      let nb_backticks = 0
+   endif
 
-        execute 'normal a' . my_text . "\<esc>"
+   if (nb_quotes  >= 2 && nb_qquotes   >= 2) ||
+     \(nb_quotes  >= 2 && nb_backticks >= 2) ||
+     \(nb_qquotes >= 2 && nb_backticks >= 2)
 
-        return my_text
-    endif
+      " Algorithm: go to the previous quote, then look forward for a matching
+      "            one. If there isn't one, repeat these two operations until
+      "            success (3 times maximum for our 3 kind of quotes).
+      call search ('["' . "'`]", 'cb', line('.'))
+      let quote_under_cursor = matchstr(getline('.'), "['".'"`]', col('.') - 1)
 
-endfunction
+      if search (quote_under_cursor, 'n', line('.'))
 
-function! CI_quotes (text)
+         " There are edge cases if setpos is commented out. ex:
+         " '       1            '      X      ' will result in:
+         " '|'             '                     instead of:
+         " '                    '|'
+         "
+         " But with setpos, the following won't do anything because the cursor
+         " would eventually return to the backtick and ci' isn't correct there:
+         " '       '        "       ` (cursor on the backtick)
+         " call setpos('.', save_cursor)
+         execute 'normal! ci' . quote_under_cursor
+      else
+         for i in range(3)
 
-    let my_changedtick = b:changedtick
+            call search ('["' . "'`]", 'b', line('.'))
+            let quote_under_cursor =
+               \matchstr(getline('.'), "['".'"`]', col('.') - 1)
 
-    let save_cursor = getpos(".")
+            if search (quote_under_cursor, 'n', line('.'))
 
-    let stop_line = line('.') - 1
+               " same as above
+               " call setpos('.', save_cursor)
+               execute 'normal! ci' . quote_under_cursor
+               break
+            endif
+         endfor
 
-    " Look for quotes from the cursor line to the bottom of the screen
-    " todo: put into a function the code between '---'s
-    " ---
-    let nb_quotes  = strlen(substitute(getline('.'), "[^']", '', 'g'))
-    let nb_qquotes = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+      endif
 
-    while nb_quotes < 2 && nb_qquotes < 2
+   " 2. In this second section, since there aren't pairs of quotes on the
+   "    current line, we explore the whole screen till we find one.
+   elseif nb_quotes < 2 && nb_qquotes < 2 && nb_backticks < 2
 
-        normal $
+      " Look for quotes from the cursor line to the bottom of the screen
+      while nb_quotes < 2 && nb_qquotes < 2 && nb_backticks < 2
 
-        if 0 == search ('["'."']", '', line('w$'))
+         normal! $
 
+         if !search ('["'."']", '', line('w$'))
             break
-        else
-            let nb_quotes  = strlen(substitute(getline('.'), "[^']", '', 'g'))
-            let nb_qquotes = strlen(substitute(getline('.'), '[^"]', '', 'g'))
-        endif
+         else
+            let nb_quotes    = strlen(substitute(getline('.'), "[^']", '', 'g'))
+            let nb_qquotes   = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+            let nb_backticks = strlen(substitute(getline('.'), '[^`]', '', 'g'))
+         endif
 
-    endwhile
-    " ---
+      endwhile
 
-    " Look for quotes from the top of the screen to the cursor line
-    if nb_quotes < 2 && nb_qquotes < 2 && 1 != line('$')
+      " Look for quotes from the top of the screen to the cursor line
+      if nb_quotes < 2 && nb_qquotes < 2 && nb_backticks < 2
 
-        execute line('w0')
+         execute line('w0')
+         normal! 0
 
-        " ---
-        let nb_quotes  = strlen(substitute(getline('.'), "[^']", '', 'g'))
-        let nb_qquotes = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+         let nb_quotes    = strlen(substitute(getline('.'), "[^']", '', 'g'))
+         let nb_qquotes   = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+         let nb_backticks = strlen(substitute(getline('.'), '[^`]', '', 'g'))
 
-        while nb_quotes < 2 && nb_qquotes < 2
+         while nb_quotes < 2 && nb_qquotes < 2 && nb_backticks < 2
 
-            normal $
+            normal! $
 
-            if 0 == search ('["'."']", '', stop_line)
-
-                break
+            if !search ('["'."']", '', stop_line)
+               break
             else
-                let nb_quotes  = strlen(substitute(getline('.'), "[^']", '', 'g'))
-                let nb_qquotes = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+               let nb_quotes    = strlen(substitute(getline('.'), "[^']", '', 'g'))
+               let nb_qquotes   = strlen(substitute(getline('.'), '[^"]', '', 'g'))
+               let nb_backticks = strlen(substitute(getline('.'), '[^`]', '', 'g'))
             endif
 
-        endwhile
-        " ---
-    endif
+         endwhile
+      endif
 
-    if nb_quotes >= 2 && nb_qquotes >= 2
+      " We are at BOF. If the is a single pair of quotes, we can directly ci it.
+      if      nb_quotes >= 2 && nb_qquotes <  2 && nb_backticks <  2
 
-        " If before the first quote or double quote...
-        if !search ('["' . "']", 'cbW', line('.'))
+         normal! ci'
 
-            " ...go to the first one
-            call search ('["' . "']", 'cW', line('.'))
-        endif
+      elseif  nb_quotes <  2 && nb_qquotes >= 2 && nb_backticks <  2
 
-        if "'" == matchstr(getline('.'), "['".'"]', col('.') - 1)
+         normal! ci"
 
-            let quote_under_cursor = "'"
-            let anti_quote         = '"'
-        else
-            let quote_under_cursor = '"'
-            let anti_quote         = "'"
-        endif
+      elseif  nb_quotes <  2 && nb_qquotes <  2 && nb_backticks >= 2
 
-        " Not at EOL
-        if col('.') + 1 != col('$')
+         normal! ci`
 
-            call setpos('.', save_cursor)
+      " If all pairs are present, we can ci the quote under the cursor
+      elseif  nb_quotes >= 2 && nb_qquotes >= 2 && nb_backticks >= 2
 
-            let at_eol = 0
-        else
-            let at_eol = 1
-        endif
+         let quote_under_cursor = matchstr(getline('.'), "['".'"`]', col('.') - 1)
+         execute 'normal! ci' . quote_under_cursor
 
-        if empty(a:text)
+      " If there are two pairs of quotes only, we have to find the quote that is
+      " part of a pair that comes first!
+      elseif (nb_quotes  >= 2 && nb_qquotes   >= 2) ||
+            \(nb_quotes  >= 2 && nb_backticks >= 2) ||
+            \(nb_qquotes >= 2 && nb_backticks >= 2)
 
-            let my_text = input('Text: ')
+         while 1
 
-        elseif 'no_text' == a:text
+            let quote_under_cursor =
+               \matchstr(getline('.'), "['".'"`]', col('.') - 1)
 
-            let my_text = ''
-        else
-            let my_text = a:text
-        endif
+            if  (nb_quotes    >= 2 && "'" == quote_under_cursor) ||
+               \(nb_qquotes   >= 2 && '"' == quote_under_cursor) ||
+               \(nb_backticks >= 2 && '`' == quote_under_cursor)
 
-        if at_eol || !at_eol && search (quote_under_cursor, 'cnW', line('.'))
+               execute 'normal! ci' . quote_under_cursor
+               break
+            else
+               call search ('["' . "'`]", '', line('.'))
+            endif
 
-            execute 'normal ci' . quote_under_cursor . my_text . "\<esc>"
-        else
-            execute 'normal ci' . anti_quote         . my_text . "\<esc>"
-        endif
+         endwhile
 
-    elseif nb_quotes >= 2
+      endif
+   endif
 
-        let my_text = s:ChangeTextQuotes (my_changedtick, "'", a:text)
+   if my_changedtick == b:changedtick &&
+      \nb_quotes < 2 && nb_qquotes < 2 && nb_backticks < 2
 
-    elseif nb_qquotes >= 2
+      echohl  ErrorMsg
+      echo   'Nothing to do'
+      echohl  None
 
-        let my_text = s:ChangeTextQuotes (my_changedtick, '"', a:text)
-    endif
-
-    if my_changedtick == b:changedtick
-
-        echohl  ErrorMsg
-        echo   'Nothing to do'
-        echohl  None
-
-        call setpos('.', save_cursor)
-    else
-        if empty(my_text)
-
-            let my_text = 'no_text'
-
-            normal l
-
-            startinsert
-        endif
-
-        " Repeat
-        let virtualedit_bak = &virtualedit
-        set virtualedit=
-
-        silent! call repeat#set(":call CI_quotes('" . my_text . "')\<cr>")
-
-        let &virtualedit = virtualedit_bak
-    endif
+      call setpos('.', save_cursor)
+   else
+      normal! l
+      startinsert
+   endif
 
 endfunction
 
-nmap <silent> <plug>QuotesCIQuotes :<c-u>call CI_quotes('')<cr>
+nmap <silent> <plug>QuotesCIQuotes :<c-u>call CI_quotes()<cr>
 nmap       "" <plug>QuotesCIQuotes
 
 let &cpoptions = s:savecpo
